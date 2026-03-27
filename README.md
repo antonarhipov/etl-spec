@@ -6,7 +6,7 @@
 
 # Clarification of the detailed requirements
 
-[01-requirements-after-prompt3.md](spec/01-requirements-after-prompt3.md) -> [requirements.md](spec/requirements.md)
+[01-requirements-after-prompt3.md](spec/01-requirements-after-prompt3.md) -> prompt: "clarify all requirements" -> [requirements.md](spec/requirements.md)
 
 # Acceptance criteria
 
@@ -14,7 +14,7 @@
 
 # Verification
 
-prompt: [verification-prompt.md](prompts/verification-prompt.md) -> [verification.md](spec/verification.md)
+([proposal.md](spec/proposal.md) + [requirements.md](spec/requirements.md) + [acceptance_criteria.md](spec/acceptance_criteria.md)) -> prompt: [verification-prompt.md](prompts/verification-prompt.md) -> [verification.md](spec/verification.md)
 
 # Task list
 
