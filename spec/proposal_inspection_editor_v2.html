@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>proposal.md — Inspections (03-requirements-after-prompt3.md)</title>
+<style>
+  :root {
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f7f6f3;
+    --color-background-tertiary: #f0efe8;
+    --color-text-primary: #1a1a18;
+    --color-text-secondary: #5f5e5a;
+    --color-text-tertiary: #888780;
+    --color-border-tertiary: rgba(0,0,0,0.12);
+    --color-border-secondary: rgba(0,0,0,0.22);
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    --border-radius-md: 8px;
+    --border-radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-background-primary: #1e1e1c;
+      --color-background-secondary: #252523;
+      --color-background-tertiary: #2c2c2a;
+      --color-text-primary: #e8e6df;
+      --color-text-secondary: #a8a69f;
+      --color-text-tertiary: #6e6d69;
+      --color-border-tertiary: rgba(255,255,255,0.10);
+      --color-border-secondary: rgba(255,255,255,0.18);
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;font-family:var(--font-mono);font-size:13px;line-height:1.6;background:var(--color-background-primary);color:var(--color-text-primary)}
+  .root{display:flex;flex-direction:column;height:100vh;min-height:640px}
+  .titlebar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);flex-shrink:0}
+  .tab{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:4px;font-size:12px;color:var(--color-text-secondary);background:var(--color-background-secondary);border:0.5px solid transparent;cursor:pointer}
+  .tab.active{background:var(--color-background-primary);border-color:var(--color-border-tertiary);color:var(--color-text-primary)}
+  .tab-icon{width:12px;height:12px;display:inline-block;border-radius:2px;background:#5DCAA5}
+  .main{display:flex;flex:1;overflow:hidden}
+  .editor{flex:1;overflow-y:auto;padding:12px 0}
+  .line{display:flex;align-items:flex-start;min-height:22px;cursor:pointer;position:relative}
+  .line:hover{background:rgba(127,119,221,0.05)}
+  .line.highlighted{background:rgba(127,119,221,0.08)}
+  .line.error-line{background:rgba(226,75,74,0.04)}
+  .line.warn-line{background:rgba(239,159,39,0.05)}
+  .line.info-line{background:rgba(55,138,221,0.05)}
+  .ln{width:44px;min-width:44px;text-align:right;padding-right:12px;font-size:11px;color:var(--color-text-tertiary);user-select:none;line-height:22px}
+  .code{flex:1;padding:0 16px 0 4px;word-break:break-word;position:relative;line-height:22px;color:var(--color-text-primary)}
+  .underline-warn{background:linear-gradient(to right,transparent 50%,#EF9F27 50%) 0 100%/4px 2px repeat-x}
+  .underline-err{background:linear-gradient(to right,transparent 50%,#E24B4A 50%) 0 100%/4px 2px repeat-x}
+  .underline-info{background:linear-gradient(to right,transparent 50%,#378ADD 50%) 0 100%/4px 2px repeat-x}
+  .gutter-icon{position:absolute;left:-20px;top:3px;width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:500;cursor:pointer;font-family:var(--font-sans)}
+  .gutter-icon.warn{background:#EF9F27;color:#fff}
+  .gutter-icon.err{background:#E24B4A;color:#fff}
+  .gutter-icon.info{background:#378ADD;color:#fff}
+  .sidebar{width:360px;min-width:280px;border-left:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;overflow:hidden;background:var(--color-background-secondary)}
+  .sidebar-header{padding:9px 14px;font-size:11px;font-weight:500;letter-spacing:0.04em;color:var(--color-text-secondary);text-transform:uppercase;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-family:var(--font-sans)}
+  .badge-count{font-size:10px;padding:1px 6px;border-radius:10px;font-weight:500}
+  .badge-warn{background:#FAEEDA;color:#854F0B}
+  .badge-err{background:#FCEBEB;color:#A32D2D}
+  .badge-info{background:#E6F1FB;color:#185FA5}
+  .issue-list{flex:1;overflow-y:auto}
+  .issue{padding:10px 14px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;display:flex;gap:10px;align-items:flex-start;font-family:var(--font-sans)}
+  .issue:hover{background:var(--color-background-primary)}
+  .issue.active{background:var(--color-background-primary);border-left:2px solid #378ADD}
+  .issue-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:6px}
+  .issue-dot.warn{background:#EF9F27}
+  .issue-dot.err{background:#E24B4A}
+  .issue-dot.info{background:#378ADD}
+  .issue-body{flex:1;min-width:0}
+  .issue-title{font-size:12px;color:var(--color-text-primary);font-weight:500;line-height:1.4;margin-bottom:2px}
+  .issue-meta{font-size:11px;color:var(--color-text-tertiary);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .issue-line-ref{font-family:var(--font-mono);background:var(--color-background-tertiary);padding:1px 5px;border-radius:3px;font-size:10px}
+  .issue-section{font-size:10px;padding:1px 6px;border-radius:3px;font-weight:500}
+  .sec-ambiguity{background:#FAEEDA;color:#854F0B}
+  .sec-missing{background:#FCEBEB;color:#A32D2D}
+  .sec-edge{background:#EEEDFE;color:#3C3489}
+  .sec-question{background:#E6F1FB;color:#185FA5}
+  .detail-panel{padding:12px 14px;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-primary);flex-shrink:0;font-family:var(--font-sans);max-height:210px;overflow-y:auto}
+  .detail-source{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--color-text-tertiary);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .detail-source-file{font-family:var(--font-mono);background:var(--color-background-secondary);padding:1px 6px;border-radius:3px;font-size:10px;color:var(--color-text-secondary)}
+  .detail-q{font-size:12px;color:var(--color-text-primary);font-weight:500;margin-bottom:4px;line-height:1.4}
+  .detail-why{font-size:11px;color:var(--color-text-tertiary);line-height:1.5}
+  .open-badge{display:inline-block;background:#FAEEDA;color:#854F0B;font-size:10px;padding:1px 7px;border-radius:10px;font-weight:500;margin-bottom:8px}
+  .statusbar{display:flex;align-items:center;gap:14px;padding:4px 14px;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);flex-shrink:0;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans)}
+  .st-item{display:flex;align-items:center;gap:4px}
+  .st-dot{width:6px;height:6px;border-radius:50%}
+  .sep{color:var(--color-border-secondary)}
+  .tooltip{position:fixed;background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:8px 10px;font-size:11px;color:var(--color-text-secondary);max-width:260px;pointer-events:none;z-index:999;display:none;font-family:var(--font-sans);line-height:1.5}
+  .tooltip-title{font-weight:500;color:var(--color-text-primary);margin-bottom:3px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="root">
+  <div class="titlebar">
+    <div class="tab active"><span class="tab-icon"></span>proposal.md</div>
+    <div class="tab" style="opacity:0.5">03-requirements-after-prompt3.md</div>
+    <div style="flex:1"></div>
+    <div style="font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans)">10 open questions &nbsp;·&nbsp; 03-requirements-after-prompt3.md</div>
+  </div>
+  <div class="main">
+    <div class="editor" id="editor"><div style="padding:0 0 0 20px;position:relative"></div></div>
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <span>Inspections</span>
+        <div style="display:flex;gap:4px">
+          <span class="badge-count badge-err" id="ec">0</span>
+          <span class="badge-count badge-warn" id="wc">0</span>
+          <span class="badge-count badge-info" id="ic">0</span>
+        </div>
+      </div>
+      <div class="issue-list" id="issueList"></div>
+      <div class="detail-panel" id="detailPanel" style="display:none">
+        <div class="detail-source">Open question <span class="detail-source-file">03-requirements-after-prompt3.md</span></div>
+        <div id="detailContent"></div>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="st-item"><div class="st-dot" style="background:#E24B4A"></div><span id="sb-err">0 missing</span></div>
+    <div class="st-item"><div class="st-dot" style="background:#EF9F27"></div><span id="sb-warn">0 ambiguous</span></div>
+    <div class="st-item"><div class="st-dot" style="background:#378ADD"></div><span id="sb-info">0 edge cases</span></div>
+    <div style="flex:1"></div>
+    <span>Markdown</span><span class="sep">|</span><span>UTF-8</span><span class="sep">|</span><span>LF</span>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"><div class="tooltip-title" id="tt-title"></div><div id="tt-body"></div></div>
+<script>
+const lines = [
+  {text:'Implement batch job with Spring Batch with JDBC to import temperature data from csv files into database:', issues:['csv-plural']},
+  {text:'1. Extract "name", "datetime", and "temp" columns from the csv file', issues:['datetime-format','temp-type']},
+  {text:'2. The "name" and "datetime" columns are unique pair.', issues:['dup-scope']},
+  {text:'3. The duplicate entries should be reported and ignored.', issues:['reported-meaning']},
+  {text:'4. Print the summary, how many records were inserted to the database, and how many duplicates were detected.', issues:['summary-target']},
+  {text:'5. Use Testcontainers for integration testing', issues:['db-missing','path-missing','error-handling','scheduling','scale']},
+];
+
+const issueMap = {
+  'csv-plural':{id:'csv-plural',type:'warn',title:'"csv files" — single or multiple per run?',span:'csv files',line:1,section:'ambiguity',sectionLabel:'Ambiguity',q:'Does the job process a single CSV file per run, or multiple files from a directory? If multiple, sequential or parallel?',why:'Affects job parameter design, partitioning strategy, and reader configuration.'},
+  'datetime-format':{id:'datetime-format',type:'warn',title:'Datetime column format unspecified',span:'datetime',line:2,section:'ambiguity',sectionLabel:'Ambiguity',q:'What format is the datetime in the CSV — ISO 8601, yyyy-MM-dd HH:mm:ss, or a custom pattern? Does it include timezone?',why:'Required for FlatFileItemReader configuration. Incorrect parsing silently corrupts data. (Q2)'},
+  'temp-type':{id:'temp-type',type:'warn',title:'Temperature column data type unspecified',span:'temp',line:2,section:'ambiguity',sectionLabel:'Ambiguity',q:'Is the temperature value a decimal (e.g. 23.5), integer, or string? What unit — Celsius, Fahrenheit, Kelvin?',why:'Affects DB column type (DECIMAL vs INTEGER) and any validation logic. (Q3)'},
+  'dup-scope':{id:'dup-scope',type:'info',title:'Duplicate detection scope unclear',span:'"name" and "datetime" columns are unique pair',line:3,section:'question',sectionLabel:'Q5',q:'Should duplicates be detected only against existing DB records, or also within the same CSV file?',why:'Determines whether deduplication is handled by DB unique constraint alone, or also in the ItemProcessor.'},
+  'reported-meaning':{id:'reported-meaning',type:'warn',title:'"Reported" is ambiguous',span:'reported',line:4,section:'ambiguity',sectionLabel:'Ambiguity',q:'What does "reported" mean — logged to console, written to a reject file, or stored in a DB table? Reported per-file or per-run?',why:'Affects whether a JobExecutionListener, skip listener, or separate reject writer is needed.'},
+  'summary-target':{id:'summary-target',type:'warn',title:'Summary output target unspecified',span:'Print the summary',line:5,section:'ambiguity',sectionLabel:'Ambiguity',q:'Should the summary be printed to stdout, written to the log, returned as a job execution result, or all three?',why:'Determines implementation: JobExecutionListener logging vs. explicit console print. (Q8)'},
+  'db-missing':{id:'db-missing',type:'err',title:'Database engine not specified',span:'Testcontainers',line:6,section:'missing',sectionLabel:'Missing',q:'What database engine should be used — PostgreSQL, MySQL, or H2?',why:'Determines Testcontainers image, SQL dialect, DDL scripts, Flyway variant, and JDBC driver dependency. (Q1)'},
+  'path-missing':{id:'path-missing',type:'err',title:'CSV file path provision undefined',span:'Testcontainers',line:6,section:'missing',sectionLabel:'Missing',q:'How is the CSV file path provided — CLI argument, application property, or watched directory?',why:'Determines job parameter design and whether the job supports multiple files. (Q4)'},
+  'error-handling':{id:'error-handling',type:'err',title:'No error handling strategy defined',span:'integration testing',line:6,section:'missing',sectionLabel:'Missing',q:'What happens when a row has missing fields, malformed datetime, or invalid temperature — skip with warning, or fail the job?',why:'Defines skip policy, skip limit, and SkippableException handling in the Step configuration. (Q6)'},
+  'scheduling':{id:'scheduling',type:'info',title:'Job scheduling mode not specified',span:'integration testing',line:6,section:'missing',sectionLabel:'Missing',q:'Is this a one-time run on startup, triggered on demand, or scheduled via cron?',why:'Affects spring.batch.job.enabled config, re-runnability design, and job parameter strategy. (Q9)'},
+  'scale':{id:'scale',type:'info',title:'Expected file scale not specified',span:'integration testing',line:6,section:'missing',sectionLabel:'Missing',q:'What is the expected file size and record count — thousands, millions?',why:'Determines chunk size, commit interval, and whether partitioning or parallel processing is needed. (Q10)'},
+};
+
+const allIssues = Object.values(issueMap);
+function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+function renderLine(lineObj, idx){
+  const li = lineObj.issues.map(id=>issueMap[id]).filter(Boolean);
+  const hasErr=li.some(i=>i.type==='err'),hasWarn=li.some(i=>i.type==='warn'),hasInfo=li.some(i=>i.type==='info');
+  let cls='line';
+  if(hasErr)cls+=' error-line'; else if(hasWarn)cls+=' warn-line'; else if(hasInfo)cls+=' info-line';
+  let text=escapeHtml(lineObj.text);
+  li.forEach(issue=>{
+    const st=escapeHtml(issue.span);
+    const uc=issue.type==='err'?'underline-err':issue.type==='warn'?'underline-warn':'underline-info';
+    text=text.replace(st,`<span class="${uc}" data-issue="${issue.id}" style="cursor:pointer">${st}</span>`);
+  });
+  let gi='';
+  if(li.length>0){
+    const fid=lineObj.issues[0];
+    const type=hasErr?'err':hasWarn?'warn':'info';
+    const sym=hasErr?'!':hasWarn?'⚠':'i';
+    gi=`<span class="gutter-icon ${type}" data-issue="${fid}">${sym}</span>`;
+    if(li.length>1)gi+=`<span style="position:absolute;left:-4px;top:3px;font-size:9px;color:var(--color-text-tertiary);font-family:var(--font-sans)">+${li.length-1}</span>`;
+  }
+  return `<div class="line ${cls}" data-line="${idx}"><div class="ln">${idx+1}</div><div class="code" style="position:relative">${gi}${text}</div></div>`;
+}
+
+const editor=document.getElementById('editor');
+editor.innerHTML='<div style="padding:0 0 0 20px;position:relative">'+lines.map((l,i)=>renderLine(l,i)).join('')+'</div>';
+
+const errors=allIssues.filter(i=>i.type==='err');
+const warns=allIssues.filter(i=>i.type==='warn');
+const infos=allIssues.filter(i=>i.type==='info');
+
+document.getElementById('ec').textContent=errors.length+' missing';
+document.getElementById('wc').textContent=warns.length+' ambiguous';
+document.getElementById('ic').textContent=infos.length+' edge';
+document.getElementById('sb-err').textContent=errors.length+' missing info';
+document.getElementById('sb-warn').textContent=warns.length+' ambiguities';
+document.getElementById('sb-info').textContent=infos.length+' edge cases';
+
+const secClass={ambiguity:'sec-ambiguity',missing:'sec-missing',edge:'sec-edge',question:'sec-question'};
+const issueList=document.getElementById('issueList');
+issueList.innerHTML=[...errors,...warns,...infos].map(issue=>`
+  <div class="issue" data-issue="${issue.id}">
+    <div class="issue-dot ${issue.type}"></div>
+    <div class="issue-body">
+      <div class="issue-title">${issue.title}</div>
+      <div class="issue-meta">
+        <span class="issue-line-ref">L${issue.line}</span>
+        <span class="issue-section ${secClass[issue.section]||'sec-question'}">${issue.sectionLabel}</span>
+        <span>${issue.q.substring(0,46)}…</span>
+      </div>
+    </div>
+  </div>`).join('');
+
+function selectIssue(id){
+  if(!id||!issueMap[id])return;
+  const issue=issueMap[id];
+  document.querySelectorAll('.issue').forEach(el=>el.classList.toggle('active',el.dataset.issue===id));
+  document.querySelectorAll('.line').forEach(el=>{
+    el.classList.remove('highlighted');
+    if(parseInt(el.dataset.line)===issue.line-1)el.classList.add('highlighted');
+  });
+  document.getElementById('detailPanel').style.display='block';
+  document.getElementById('detailContent').innerHTML=
+    `<span class="open-badge">Open question</span>
+     <div class="detail-q">${issue.q}</div>
+     <div class="detail-why">${issue.why}</div>`;
+  const el=document.querySelector(`.issue[data-issue="${id}"]`);
+  if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});
+  const lineEl=document.querySelector(`.line[data-line="${issue.line-1}"]`);
+  if(lineEl)lineEl.scrollIntoView({block:'center',behavior:'smooth'});
+}
+
+issueList.addEventListener('click',e=>{const it=e.target.closest('.issue');if(it)selectIssue(it.dataset.issue);});
+editor.addEventListener('click',e=>{
+  const sp=e.target.closest('[data-issue]');if(sp)selectIssue(sp.dataset.issue);
+  const ic=e.target.closest('.gutter-icon');if(ic)selectIssue(ic.dataset.issue);
+});
+const tooltip=document.getElementById('tooltip');
+editor.addEventListener('mouseover',e=>{
+  const sp=e.target.closest('[data-issue]');if(!sp)return;
+  const issue=issueMap[sp.dataset.issue];if(!issue)return;
+  document.getElementById('tt-title').textContent=issue.title;
+  document.getElementById('tt-body').textContent=issue.q.substring(0,80)+'…';
+  tooltip.style.display='block';
+});
+editor.addEventListener('mousemove',e=>{tooltip.style.left=(e.clientX+14)+'px';tooltip.style.top=(e.clientY-30)+'px';});
+editor.addEventListener('mouseout',e=>{if(!e.target.closest('[data-issue]'))tooltip.style.display='none';});
+if(allIssues.length>0)selectIssue(allIssues[0].id);
+</script>
+</body>
+</html>

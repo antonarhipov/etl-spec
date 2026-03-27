@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>proposal.md — Inspections</title>
+<style>
+  :root {
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f7f6f3;
+    --color-background-tertiary: #f0efe8;
+    --color-text-primary: #1a1a18;
+    --color-text-secondary: #5f5e5a;
+    --color-text-tertiary: #888780;
+    --color-border-tertiary: rgba(0,0,0,0.12);
+    --color-border-secondary: rgba(0,0,0,0.22);
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    --border-radius-md: 8px;
+    --border-radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-background-primary: #1e1e1c;
+      --color-background-secondary: #252523;
+      --color-background-tertiary: #2c2c2a;
+      --color-text-primary: #e8e6df;
+      --color-text-secondary: #a8a69f;
+      --color-text-tertiary: #6e6d69;
+      --color-border-tertiary: rgba(255,255,255,0.10);
+      --color-border-secondary: rgba(255,255,255,0.18);
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;font-family:var(--font-mono);font-size:13px;line-height:1.6;background:var(--color-background-primary);color:var(--color-text-primary)}
+  .root{display:flex;flex-direction:column;height:100vh;min-height:600px}
+  .titlebar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);flex-shrink:0}
+  .tab{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:4px;font-size:12px;color:var(--color-text-secondary);background:var(--color-background-secondary);border:0.5px solid transparent;cursor:pointer}
+  .tab.active{background:var(--color-background-primary);border-color:var(--color-border-tertiary);color:var(--color-text-primary)}
+  .tab-icon{width:12px;height:12px;display:inline-block;border-radius:2px;background:#5DCAA5}
+  .main{display:flex;flex:1;overflow:hidden}
+  .editor{flex:1;overflow-y:auto;padding:12px 0;position:relative}
+  .line{display:flex;align-items:flex-start;padding:0;min-height:22px;cursor:pointer;position:relative}
+  .line:hover{background:rgba(127,119,221,0.05)}
+  .line.highlighted{background:rgba(127,119,221,0.08)}
+  .line.error-line{background:rgba(226,75,74,0.05)}
+  .line.warn-line{background:rgba(239,159,39,0.06)}
+  .line.info-line{background:rgba(55,138,221,0.06)}
+  .ln{width:44px;min-width:44px;text-align:right;padding-right:12px;font-size:11px;color:var(--color-text-tertiary);user-select:none;line-height:22px}
+  .code{flex:1;padding:0 16px 0 4px;word-break:break-word;position:relative;line-height:22px;color:var(--color-text-primary)}
+  .underline-warn{background:linear-gradient(to right,transparent 50%,#EF9F27 50%) 0 100%/4px 2px repeat-x}
+  .underline-err{background:linear-gradient(to right,transparent 50%,#E24B4A 50%) 0 100%/4px 2px repeat-x}
+  .underline-info{background:linear-gradient(to right,transparent 50%,#378ADD 50%) 0 100%/4px 2px repeat-x}
+  .gutter-icon{position:absolute;left:-20px;top:3px;width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:500;cursor:pointer;font-style:normal;font-family:var(--font-sans)}
+  .gutter-icon.warn{background:#EF9F27;color:#fff}
+  .gutter-icon.err{background:#E24B4A;color:#fff}
+  .gutter-icon.info{background:#378ADD;color:#fff}
+  .sidebar{width:340px;min-width:280px;border-left:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;overflow:hidden;background:var(--color-background-secondary)}
+  .sidebar-header{padding:9px 14px;font-size:11px;font-weight:500;letter-spacing:0.04em;color:var(--color-text-secondary);text-transform:uppercase;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-family:var(--font-sans)}
+  .badge-count{font-size:10px;padding:1px 6px;border-radius:10px;font-weight:500}
+  .badge-warn{background:#FAEEDA;color:#854F0B}
+  .badge-err{background:#FCEBEB;color:#A32D2D}
+  .badge-info{background:#E6F1FB;color:#185FA5}
+  .issue-list{flex:1;overflow-y:auto}
+  .issue{padding:10px 14px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;display:flex;gap:10px;align-items:flex-start;font-family:var(--font-sans)}
+  .issue:hover{background:var(--color-background-primary)}
+  .issue.active{background:var(--color-background-primary);border-left:2px solid #378ADD}
+  .issue-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:6px}
+  .issue-dot.warn{background:#EF9F27}
+  .issue-dot.err{background:#E24B4A}
+  .issue-dot.info{background:#378ADD}
+  .issue-body{flex:1;min-width:0}
+  .issue-title{font-size:12px;color:var(--color-text-primary);font-weight:500;line-height:1.4;margin-bottom:2px}
+  .issue-meta{font-size:11px;color:var(--color-text-tertiary);display:flex;gap:6px;align-items:center}
+  .issue-line-ref{font-family:var(--font-mono);background:var(--color-background-tertiary);padding:1px 5px;border-radius:3px;font-size:10px}
+  .resolution{padding:12px 14px;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-primary);flex-shrink:0;font-family:var(--font-sans);max-height:180px;overflow-y:auto}
+  .res-label{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--color-text-tertiary);margin-bottom:6px}
+  .res-text{font-size:12px;color:var(--color-text-secondary);line-height:1.6}
+  .res-value{font-family:var(--font-mono);font-size:11px;background:var(--color-background-secondary);padding:2px 6px;border-radius:3px;color:var(--color-text-primary);display:inline-block;margin-top:4px}
+  .statusbar{display:flex;align-items:center;gap:14px;padding:4px 14px;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);flex-shrink:0;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans)}
+  .st-item{display:flex;align-items:center;gap:4px}
+  .st-dot{width:6px;height:6px;border-radius:50%}
+  .sep{color:var(--color-border-secondary)}
+  .tooltip{position:fixed;background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:8px 10px;font-size:11px;color:var(--color-text-secondary);max-width:260px;pointer-events:none;z-index:999;display:none;font-family:var(--font-sans);line-height:1.5}
+  .tooltip-title{font-weight:500;color:var(--color-text-primary);margin-bottom:3px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="root">
+  <div class="titlebar">
+    <div class="tab active"><span class="tab-icon"></span>proposal.md</div>
+    <div class="tab" style="opacity:0.5">requirements.md</div>
+    <div style="flex:1"></div>
+    <div style="font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans)">Inspections: requirements.md</div>
+  </div>
+
+  <div class="main">
+    <div class="editor" id="editor">
+      <div style="padding:0 0 0 20px;position:relative"></div>
+    </div>
+
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <span>Inspections</span>
+        <div style="display:flex;gap:4px">
+          <span class="badge-count badge-err" id="ec">0 errors</span>
+          <span class="badge-count badge-warn" id="wc">0 warnings</span>
+          <span class="badge-count badge-info" id="ic">0 hints</span>
+        </div>
+      </div>
+      <div class="issue-list" id="issueList"></div>
+      <div class="resolution" id="resolution" style="display:none">
+        <div class="res-label">Resolution from requirements.md</div>
+        <div class="res-text" id="resText"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <div class="st-item"><div class="st-dot" style="background:#E24B4A"></div><span id="sb-err">0 errors</span></div>
+    <div class="st-item"><div class="st-dot" style="background:#EF9F27"></div><span id="sb-warn">0 warnings</span></div>
+    <div class="st-item"><div class="st-dot" style="background:#378ADD"></div><span id="sb-info">0 hints</span></div>
+    <div style="flex:1"></div>
+    <span>Markdown</span>
+    <span class="sep">|</span>
+    <span>UTF-8</span>
+    <span class="sep">|</span>
+    <span>LF</span>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="tooltip-title" id="tt-title"></div>
+  <div id="tt-body"></div>
+</div>
+
+<script>
+const lines = [
+  {text:'Implement batch job with Spring Batch with JDBC to import temperature data from csv files into database:', issues:[]},
+  {text:'1. Extract "name", "datetime", and "temp" columns from the csv file', issues:['datetime-format','temp-type']},
+  {text:'2. The "name" and "datetime" columns are unique pair.', issues:[]},
+  {text:'3. The duplicate entries should be reported and ignored.', issues:['reported-meaning']},
+  {text:'4. Print the summary, how many records were inserted to the database, and how many duplicates were detected.', issues:['summary-target']},
+  {text:'5. Use Testcontainers for integration testing', issues:['db-missing','error-handling-missing','path-missing']},
+];
+
+const issueMap = {
+  'datetime-format':{id:'datetime-format',type:'warn',title:'Datetime format unspecified',span:'datetime',line:2,short:'No datetime format',meta:'FlatFileItemReader needs explicit format',resolution:'Resolved: use <span class="res-value">yyyy-MM-dd HH:mm:ss</span> (no timezone). Store as MySQL <span class="res-value">DATETIME</span>.'},
+  'temp-type':{id:'temp-type',type:'warn',title:'Temperature column type unspecified',span:'temp',line:2,short:'No type for temp',meta:'Ambiguous: String, float, DECIMAL?',resolution:'Resolved: store as <span class="res-value">DECIMAL(6,2)</span>. Supports <span class="res-value">-273.15</span> to <span class="res-value">999.99</span>. Unit not enforced by application.'},
+  'reported-meaning':{id:'reported-meaning',type:'warn',title:'"Reported" is ambiguous',span:'reported',line:4,short:"Unclear what 'reported' means",meta:'Log to file? stdout? reject file?',resolution:'Resolved: log via SLF4J at <span class="res-value">WARN</span> level — name + datetime of each duplicate. No separate reject file. Count included in final summary.'},
+  'summary-target':{id:'summary-target',type:'warn',title:'Summary output target unspecified',span:'Print the summary',line:5,short:'Where is the summary printed?',meta:'Console? log? file? email?',resolution:'Resolved: logged via <span class="res-value">JobExecutionListener#afterJob</span> at INFO level and printed to stdout. Format: <span class="res-value">Inserted: N, Duplicates skipped: M</span>.'},
+  'db-missing':{id:'db-missing',type:'err',title:'Database engine not specified',span:'Testcontainers',line:6,short:'No DB type mentioned',meta:'Affects schema, driver, migration tool',resolution:'Resolved: <span class="res-value">MySQL</span> — confirmed by pom.xml (<span class="res-value">mysql-connector-j</span>, <span class="res-value">flyway-mysql</span>) and compose.yaml.'},
+  'error-handling-missing':{id:'error-handling-missing',type:'err',title:'No error handling strategy defined',span:'integration testing',line:6,short:'Malformed rows not addressed',meta:'Missing rows, bad dates, non-numeric temp?',resolution:'Resolved: skip with WARN log. Configurable skip limit (default <span class="res-value">10</span>). Exceeding limit fails the job.'},
+  'path-missing':{id:'path-missing',type:'info',title:'CSV file path provision undefined',span:'integration testing',line:6,short:'How is filePath passed in?',meta:'Hardcoded? job param? env var?',resolution:'Resolved: passed as Spring Batch job parameter <span class="res-value">--filePath=path/to/data.csv</span>. Validated at startup — job fails fast if file is absent.'},
+};
+
+const allIssues = Object.values(issueMap);
+
+function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+function renderLine(lineObj, idx){
+  const lineIssues = lineObj.issues.map(id=>issueMap[id]).filter(Boolean);
+  const hasErr = lineIssues.some(i=>i.type==='err');
+  const hasWarn = lineIssues.some(i=>i.type==='warn');
+  const hasInfo = lineIssues.some(i=>i.type==='info');
+  let cls = 'line';
+  if(hasErr) cls+=' error-line';
+  else if(hasWarn) cls+=' warn-line';
+  else if(hasInfo) cls+=' info-line';
+
+  let text = escapeHtml(lineObj.text);
+  lineIssues.forEach(issue=>{
+    const spanText = escapeHtml(issue.span);
+    const ucls = issue.type==='err'?'underline-err':issue.type==='warn'?'underline-warn':'underline-info';
+    text = text.replace(spanText,`<span class="${ucls}" data-issue="${issue.id}" style="cursor:pointer">${spanText}</span>`);
+  });
+
+  let gutterIcon = '';
+  if(lineIssues.length>0){
+    const type = hasErr?'err':hasWarn?'warn':'info';
+    const sym = hasErr?'!':hasWarn?'⚠':'i';
+    gutterIcon = `<span class="gutter-icon ${type}" data-issue="${lineIssues[0].id}">${sym}</span>`;
+  }
+
+  return `<div class="line ${cls}" data-line="${idx}">
+    <div class="ln">${idx+1}</div>
+    <div class="code" style="position:relative">${gutterIcon}${text}</div>
+  </div>`;
+}
+
+const editor = document.getElementById('editor');
+editor.innerHTML = '<div style="padding:0 0 0 20px;position:relative">' +
+  lines.map((l,i)=>renderLine(l,i)).join('') + '</div>';
+
+const errors = allIssues.filter(i=>i.type==='err');
+const warns = allIssues.filter(i=>i.type==='warn');
+const infos = allIssues.filter(i=>i.type==='info');
+
+document.getElementById('ec').textContent = errors.length + ' error' + (errors.length!==1?'s':'');
+document.getElementById('wc').textContent = warns.length + ' warning' + (warns.length!==1?'s':'');
+document.getElementById('ic').textContent = infos.length + ' hint' + (infos.length!==1?'s':'');
+document.getElementById('sb-err').textContent = errors.length + ' errors';
+document.getElementById('sb-warn').textContent = warns.length + ' warnings';
+document.getElementById('sb-info').textContent = infos.length + ' hints';
+
+const issueList = document.getElementById('issueList');
+issueList.innerHTML = [...errors,...warns,...infos].map(issue=>`
+  <div class="issue" data-issue="${issue.id}">
+    <div class="issue-dot ${issue.type}"></div>
+    <div class="issue-body">
+      <div class="issue-title">${issue.title}</div>
+      <div class="issue-meta">
+        <span class="issue-line-ref">L${issue.line}</span>
+        <span>${issue.meta}</span>
+      </div>
+    </div>
+  </div>`).join('');
+
+function selectIssue(id){
+  if(!id) return;
+  const issue = issueMap[id];
+  document.querySelectorAll('.issue').forEach(el=>el.classList.toggle('active',el.dataset.issue===id));
+  document.querySelectorAll('.line').forEach(el=>{
+    el.classList.remove('highlighted');
+    if(parseInt(el.dataset.line)===issue.line-1) el.classList.add('highlighted');
+  });
+  const res = document.getElementById('resolution');
+  res.style.display='block';
+  document.getElementById('resText').innerHTML = issue.resolution;
+  const issueEl = document.querySelector(`.issue[data-issue="${id}"]`);
+  if(issueEl) issueEl.scrollIntoView({block:'nearest',behavior:'smooth'});
+  const lineEl = document.querySelector(`.line[data-line="${issue.line-1}"]`);
+  if(lineEl) lineEl.scrollIntoView({block:'center',behavior:'smooth'});
+}
+
+issueList.addEventListener('click',e=>{
+  const item = e.target.closest('.issue');
+  if(item) selectIssue(item.dataset.issue);
+});
+editor.addEventListener('click',e=>{
+  const span = e.target.closest('[data-issue]');
+  if(span) selectIssue(span.dataset.issue);
+  const icon = e.target.closest('.gutter-icon');
+  if(icon) selectIssue(icon.dataset.issue);
+});
+
+const tooltip = document.getElementById('tooltip');
+editor.addEventListener('mouseover',e=>{
+  const span = e.target.closest('[data-issue]');
+  if(!span) return;
+  const issue = issueMap[span.dataset.issue];
+  if(!issue) return;
+  document.getElementById('tt-title').textContent = issue.title;
+  document.getElementById('tt-body').textContent = issue.meta;
+  tooltip.style.display='block';
+});
+editor.addEventListener('mousemove',e=>{
+  tooltip.style.left=(e.clientX+14)+'px';
+  tooltip.style.top=(e.clientY-30)+'px';
+});
+editor.addEventListener('mouseout',e=>{
+  if(!e.target.closest('[data-issue]')) tooltip.style.display='none';
+});
+
+if(allIssues.length>0) selectIssue(allIssues[0].id);
+</script>
+</body>
+</html>
