@@ -1,7 +1,7 @@
 # Distilling initial requirements
 
 1. [proposal.md](spec/proposal.md) -> prompt: [proposal-to-requirements-prompt1.md](prompts/proposal-to-requirements-prompt1.md) -> [01-requirements-after-prompt1.md](spec/01-requirements-after-prompt1.md)
-2. [proposal.md](spec/proposal.md) -> prompt: [proposal-to-requirements-prompt2.md](prompts/proposal-to-requirements-prompt2.md) -> [02-requirements-after-prompt2.md](spec/02-requirements-after-prompt2.md)
+2. [proposal.md](spec/proposal.md) -> prompt: [proposal-to-requirements-prompt2.md](prompts/proposal-to-requirements-prompt2.md) -> [02-requirements-after-propmt2.md](spec/02-requirements-after-propmt2.md)
 3. [proposal.md](spec/proposal.md) -> prompt: [proposal-to-requirements-prompt3.md](prompts/proposal-to-requirements-prompt3.md) -> [03-requirements-after-prompt3.md](spec/03-requirements-after-prompt3.md)
 
 # Clarification of the detailed requirements
