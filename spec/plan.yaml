@@ -1,0 +1,354 @@
+plan:
+  name: "Temperature Data CSV Import Batch Job"
+  notes:
+    - "BLOCKER-1 resolved: DuplicateKeyException does NOT count toward the skip limit; two separate counters are used."
+    - "BLOCKER-2 resolved: DataTruncationException is added to the skip policy alongside validation exceptions."
+    - "MAJOR-1 resolved: Summary format extended to 'Inserted: N, Duplicates skipped: M, Invalid skipped: E'."
+    - "MAJOR-3 resolved: JobParametersValidator is added to the implementation (task 3.5)."
+    - "Spring Boot version accepted as-is from pom.xml (4.0.5); MINOR-2 noted but not blocking."
+
+  phases:
+
+    - id: phase-1
+      name: "Infrastructure & Configuration"
+      description: "Establish the database schema, application configuration, and test data fixtures needed by all subsequent phases."
+      tasks:
+
+        - id: task-1.1
+          name: "Flyway migration: create temperature_reading table"
+          description: |
+            Create src/main/resources/db/migration/V1__create_temperature_reading.sql.
+            DDL must define:
+              - id BIGINT AUTO_INCREMENT PRIMARY KEY
+              - name VARCHAR(255) NOT NULL
+              - datetime DATETIME NOT NULL
+              - temp DECIMAL(6,2) NOT NULL
+              - UNIQUE KEY uq_name_datetime (name, datetime)
+          artifact: "src/main/resources/db/migration/V1__create_temperature_reading.sql"
+          depends_on: []
+          validation: "File exists and contains a CREATE TABLE statement with all four columns and the UNIQUE constraint on (name, datetime)."
+
+        - id: task-1.2
+          name: "Configure application.properties"
+          description: |
+            Populate src/main/resources/application.properties with:
+              - spring.datasource.* (url, username, password matching compose.yaml)
+              - spring.batch.job.enabled=true
+              - spring.batch.jdbc.initialize-schema=always
+              - batch.chunk-size=100
+              - spring.flyway.enabled=true
+          artifact: "src/main/resources/application.properties"
+          depends_on: []
+          validation: "File contains all required keys; application context starts without errors against a running MySQL instance."
+
+        - id: task-1.3
+          name: "Create test CSV fixture files"
+          description: |
+            Create src/test/resources/data/ with the following files (already present in target, move to source):
+              - clean.csv          — 3 valid unique rows
+              - with-duplicates.csv — 4 rows with 1 intra-file duplicate (SensorA 2024-01-01)
+              - with-extra-columns.csv — 3 rows with 2 extra columns (humidity, location)
+              - header-only.csv    — header row only, no data rows
+              - invalid-rows.csv   — rows with blank name, bad datetime, non-numeric temp
+          artifact: "src/test/resources/data/*.csv"
+          depends_on: []
+          validation: "All five CSV files exist under src/test/resources/data/ and are valid UTF-8 text with the expected structure."
+
+      checkpoint:
+        description: "Verify that the database layer is ready for business logic development."
+        criteria:
+          - "V1__create_temperature_reading.sql is syntactically valid MySQL DDL."
+          - "application.properties contains all required datasource and batch keys."
+          - "All test fixture CSVs are present in src/test/resources/data/."
+
+    - id: phase-2
+      name: "Domain Model"
+      description: "Define the data-transfer types and shared state objects that all batch components depend on."
+      tasks:
+
+        - id: task-2.1
+          name: "TemperatureRecord POJO"
+          description: |
+            Create src/main/java/org/example/etl/batch/TemperatureRecord.java.
+            Fields:
+              - String name
+              - LocalDateTime datetime
+              - BigDecimal temp
+            Standard getters/setters (or Java record). No framework annotations required.
+          artifact: "src/main/java/org/example/etl/batch/TemperatureRecord.java"
+          depends_on: []
+          validation: "Class compiles; fields have the correct types (LocalDateTime, BigDecimal)."
+
+        - id: task-2.2
+          name: "InvalidRecordException (skippable marker)"
+          description: |
+            Create src/main/java/org/example/etl/batch/InvalidRecordException.java.
+            Extends RuntimeException. Used by the processor to signal validation failures
+            that the skip policy should catch (distinct from DuplicateKeyException).
+          artifact: "src/main/java/org/example/etl/batch/InvalidRecordException.java"
+          depends_on: []
+          validation: "Class compiles and extends RuntimeException."
+
+        - id: task-2.3
+          name: "JobCounters (shared mutable counters)"
+          description: |
+            Create src/main/java/org/example/etl/batch/JobCounters.java.
+            Thread-safe AtomicLong fields:
+              - insertedCount
+              - duplicateCount
+              - invalidCount
+            Registered as a Spring @Component (singleton scope).
+            Two separate counters for duplicates vs. invalid resolves BLOCKER-1.
+          artifact: "src/main/java/org/example/etl/batch/JobCounters.java"
+          depends_on: []
+          validation: "Class compiles; Spring context contains exactly one JobCounters bean."
+
+      checkpoint:
+        description: "Verify domain model is complete and consistent before wiring batch components."
+        criteria:
+          - "TemperatureRecord uses LocalDateTime and BigDecimal (not String)."
+          - "InvalidRecordException is distinct from DuplicateKeyException — two separate exception hierarchies."
+          - "JobCounters has three independent AtomicLong counters."
+
+    - id: phase-3
+      name: "Batch Components"
+      description: "Implement each discrete Spring Batch component: reader, processor, writer, listener, and parameter validator."
+      tasks:
+
+        - id: task-3.1
+          name: "FlatFileItemReader<TemperatureRecord>"
+          description: |
+            Create src/main/java/org/example/etl/batch/TemperatureRecordReader.java (or define as a @Bean method).
+            Configuration:
+              - DelimitedLineTokenizer with names=[name, datetime, temp], delimiter=comma
+              - linesToSkip=1 (skip header)
+              - Charset: UTF-8
+              - filePath injected from job parameter at runtime (use JobScope or late binding)
+              - datetime parsed from string "yyyy-MM-dd HH:mm:ss" → LocalDateTime inside FieldSetMapper;
+                parse errors throw InvalidRecordException
+              - temp parsed with new BigDecimal(string); parse errors throw InvalidRecordException
+          artifact: "src/main/java/org/example/etl/batch/TemperatureRecordReader.java"
+          depends_on: [task-2.1, task-2.2]
+          validation: "Reader bean can be constructed; processing clean.csv returns 3 TemperatureRecord items."
+
+        - id: task-3.2
+          name: "TemperatureRecordProcessor (null/blank validation)"
+          description: |
+            Create src/main/java/org/example/etl/batch/TemperatureRecordProcessor.java.
+            Implements ItemProcessor<TemperatureRecord, TemperatureRecord>.
+            Validation rules:
+              - name is null or blank (after trim) → throw InvalidRecordException with WARN log
+              - datetime is null → throw InvalidRecordException with WARN log
+              - temp is null → throw InvalidRecordException with WARN log
+            Whitespace-only name is treated as invalid (resolves MINOR-3).
+            Valid records pass through unchanged.
+          artifact: "src/main/java/org/example/etl/batch/TemperatureRecordProcessor.java"
+          depends_on: [task-2.1, task-2.2]
+          validation: "Unit test: valid record passes through; blank name throws InvalidRecordException; null datetime throws InvalidRecordException."
+
+        - id: task-3.3
+          name: "TemperatureRecordWriter (JDBC + duplicate handling)"
+          description: |
+            Create src/main/java/org/example/etl/batch/TemperatureRecordWriter.java.
+            Wraps JdbcBatchItemWriter with SQL:
+              INSERT INTO temperature_reading (name, datetime, temp) VALUES (:name, :datetime, :temp)
+            Override write() to catch DuplicateKeyException per item:
+              - Log WARN with name + datetime of duplicate
+              - Increment jobCounters.duplicateCount
+              - Do NOT rethrow (row is silently skipped)
+            Increment jobCounters.insertedCount for each successful insert.
+            DataTruncationException propagates to the step skip policy (resolves BLOCKER-2).
+          artifact: "src/main/java/org/example/etl/batch/TemperatureRecordWriter.java"
+          depends_on: [task-2.1, task-2.3]
+          validation: "Writer inserts a valid record; duplicate insertion increments duplicateCount and does not throw; insertedCount is accurate."
+
+        - id: task-3.4
+          name: "ImportJobListener (JobExecutionListener — summary)"
+          description: |
+            Create src/main/java/org/example/etl/batch/ImportJobListener.java.
+            Implements JobExecutionListener.
+            afterJob():
+              - Reads jobCounters.insertedCount, duplicateCount, invalidCount
+              - Logs at INFO: "Inserted: N, Duplicates skipped: M, Invalid skipped: E"
+              - Prints same string to System.out
+              - Summary is emitted regardless of job exit status (resolves MAJOR-5 partial — counts reflect
+                progress up to point of failure when status is FAILED)
+          artifact: "src/main/java/org/example/etl/batch/ImportJobListener.java"
+          depends_on: [task-2.3]
+          validation: "After a job run, stdout contains 'Inserted: N, Duplicates skipped: M, Invalid skipped: E' with correct values."
+
+        - id: task-3.5
+          name: "FilePathValidator (JobParametersValidator)"
+          description: |
+            Create src/main/java/org/example/etl/batch/FilePathValidator.java.
+            Implements JobParametersValidator.
+            validate():
+              - Throws JobParametersInvalidException if 'filePath' key is absent or blank
+              - Throws JobParametersInvalidException if the file at the given path does not exist on disk
+            Registered on the Job bean (resolves MAJOR-3).
+          artifact: "src/main/java/org/example/etl/batch/FilePathValidator.java"
+          depends_on: []
+          validation: "Validator throws for missing key; throws for non-existent file path; passes for valid existing file."
+
+      checkpoint:
+        description: "All five batch components exist and can be unit-tested in isolation."
+        criteria:
+          - "Reader correctly maps the three columns and skips the header."
+          - "Processor throws InvalidRecordException for blank/null fields (whitespace-only name included)."
+          - "Writer separates duplicate counter from insert counter."
+          - "Listener prints 'Inserted: N, Duplicates skipped: M, Invalid skipped: E' to both log and stdout."
+          - "Validator rejects missing or non-existent filePath before any processing."
+
+    - id: phase-4
+      name: "Job Assembly & Skip Policy"
+      description: "Wire all batch components into a complete Spring Batch job with correct skip policy, step configuration, and job parameters."
+      tasks:
+
+        - id: task-4.1
+          name: "BatchJobConfiguration — step and job beans"
+          description: |
+            Create src/main/java/org/example/etl/batch/BatchJobConfiguration.java (@Configuration).
+            Define:
+              - Step bean 'importStep':
+                  chunk size from ${batch.chunk-size:100}
+                  reader = TemperatureRecordReader (job-scoped)
+                  processor = TemperatureRecordProcessor
+                  writer = TemperatureRecordWriter
+                  skip policy = CompositeSkipPolicy (see task-4.2)
+                  faultTolerant()
+              - Job bean 'importJob':
+                  start(importStep)
+                  listener = ImportJobListener
+                  validator = FilePathValidator
+                  incrementer = RunIdIncrementer (allows re-runs with same filePath — resolves AC-7.2)
+          artifact: "src/main/java/org/example/etl/batch/BatchJobConfiguration.java"
+          depends_on: [task-3.1, task-3.2, task-3.3, task-3.4, task-3.5]
+          validation: "Spring context loads without errors; 'importJob' bean is present and has a validator and incrementer."
+
+        - id: task-4.2
+          name: "Skip policy configuration"
+          description: |
+            Within BatchJobConfiguration, configure faultTolerant step with:
+              - skip(InvalidRecordException.class) — validation/parse errors count toward skip limit
+              - skip(DataTruncationException.class) — DB type overflow counts toward skip limit (resolves BLOCKER-2)
+              - noSkip(DuplicateKeyException.class) — duplicates handled in writer, NOT via skip limit
+              - skipLimit(${batch.skip-limit:10})
+            Add batch.skip-limit=10 to application.properties.
+            When skip limit is exceeded, current chunk is rolled back; prior chunks remain committed (documents MAJOR-2 behavior).
+          artifact: "src/main/java/org/example/etl/batch/BatchJobConfiguration.java (updated)"
+          depends_on: [task-4.1]
+          validation: "A file with 11 invalid rows causes job to exit FAILED; a file with 10 or fewer invalid rows completes COMPLETED."
+
+      checkpoint:
+        description: "End-to-end job wiring is complete and the application can be started."
+        criteria:
+          - "Application starts with a valid --filePath argument and job enters STARTED status."
+          - "Application fails fast with a missing or non-existent --filePath argument."
+          - "Skip limit applies only to InvalidRecordException and DataTruncationException, not DuplicateKeyException."
+          - "RunIdIncrementer allows the same filePath to be re-run as a new job instance."
+
+    - id: phase-5
+      name: "Integration Testing"
+      description: "Implement the full integration test suite using Testcontainers MySQL to verify all major acceptance criteria."
+      tasks:
+
+        - id: task-5.1
+          name: "ImportJobIntegrationTest base setup"
+          description: |
+            Create src/test/java/org/example/etl/batch/ImportJobIntegrationTest.java.
+            Annotate with @SpringBootTest, @Import(TestcontainersConfiguration.class).
+            Inject JobLauncher, Job (importJob), JdbcTemplate, JobCounters.
+            Add helper method to count rows in temperature_reading.
+            Add helper to reset JobCounters between tests.
+          artifact: "src/test/java/org/example/etl/batch/ImportJobIntegrationTest.java"
+          depends_on: [task-4.1, task-4.2, task-1.3]
+          validation: "Test class compiles and Spring context loads with Testcontainers MySQL."
+
+        - id: task-5.2
+          name: "Test: happy-path insert (AC-9.2, AC-2.1, AC-2.2)"
+          description: |
+            Test method 'happyPath_validCsvInsertedSuccessfully':
+              - Launch importJob with filePath=clean.csv (3 valid rows)
+              - Assert job status = COMPLETED
+              - Assert temperature_reading row count = 3
+              - Assert summary stdout contains "Inserted: 3, Duplicates skipped: 0, Invalid skipped: 0"
+          artifact: "src/test/java/org/example/etl/batch/ImportJobIntegrationTest.java (updated)"
+          depends_on: [task-5.1]
+          validation: "Test passes green against Testcontainers MySQL."
+
+        - id: task-5.3
+          name: "Test: duplicate skip (AC-9.3, AC-4.1, AC-4.2, AC-5.3)"
+          description: |
+            Test method 'duplicateRows_areSkippedAndCounted':
+              - Pre-insert SensorA 2024-01-01 row into temperature_reading
+              - Launch importJob with filePath=with-duplicates.csv (4 rows; SensorA 2024-01-01 appears twice)
+              - Assert job status = COMPLETED
+              - Assert insertedCount = 2 (SensorB + SensorC are new), duplicateCount = 2 (SensorA appears twice, both duplicate against DB)
+              - Assert summary contains "Inserted: 2, Duplicates skipped: 2"
+          artifact: "src/test/java/org/example/etl/batch/ImportJobIntegrationTest.java (updated)"
+          depends_on: [task-5.1]
+          validation: "Test passes green; row count in DB matches expected inserts only."
+
+        - id: task-5.4
+          name: "Test: extra columns ignored and empty file (AC-2.3, AC-6.1)"
+          description: |
+            Test method 'extraColumns_areIgnored':
+              - Launch importJob with filePath=with-extra-columns.csv (3 rows, 5 columns)
+              - Assert job status = COMPLETED, row count = 3
+            Test method 'emptyFile_completesWithZeroCounts':
+              - Launch importJob with filePath=header-only.csv
+              - Assert job status = COMPLETED, row count = 0
+              - Assert summary "Inserted: 0, Duplicates skipped: 0, Invalid skipped: 0"
+          artifact: "src/test/java/org/example/etl/batch/ImportJobIntegrationTest.java (updated)"
+          depends_on: [task-5.1]
+          validation: "Both test methods pass green."
+
+        - id: task-5.5
+          name: "Test: invalid rows skipped, skip limit breach (AC-3.1–3.5, AC-3.6, AC-3.7)"
+          description: |
+            Test method 'invalidRows_belowSkipLimit_jobCompletes':
+              - Launch importJob with filePath=invalid-rows.csv (2 invalid rows, below limit 10)
+              - Assert job status = COMPLETED
+              - Assert invalidCount = 2, summary contains "Invalid skipped: 2"
+            Test method 'invalidRows_exceedSkipLimit_jobFails':
+              - Launch importJob with a CSV containing 11 invalid rows
+              - Assert job status = FAILED
+              - Assert summary is still emitted (counts up to failure point)
+          artifact: "src/test/java/org/example/etl/batch/ImportJobIntegrationTest.java (updated)"
+          depends_on: [task-5.1]
+          validation: "Both test methods pass green; FAILED status is asserted, not an exception."
+
+        - id: task-5.6
+          name: "Test: idempotent re-run (AC-7.1, AC-7.2)"
+          description: |
+            Test method 'reRunSameFile_allDuplicates_jobCompletes':
+              - Launch importJob with filePath=clean.csv (first run inserts 3 rows)
+              - Launch importJob again with the same filePath (second run — new job instance via RunIdIncrementer)
+              - Assert second run job status = COMPLETED
+              - Assert duplicateCount = 3, insertedCount = 0
+              - Assert total row count in DB remains 3
+          artifact: "src/test/java/org/example/etl/batch/ImportJobIntegrationTest.java (updated)"
+          depends_on: [task-5.1]
+          validation: "Test passes green; two distinct job instance IDs are created for the two runs."
+
+        - id: task-5.7
+          name: "Test: file validation (AC-1.2, AC-1.3)"
+          description: |
+            Test method 'missingFilePath_jobFailsFast':
+              - Launch importJob without filePath parameter
+              - Assert JobParametersInvalidException is thrown before any DB write
+            Test method 'nonExistentFilePath_jobFailsFast':
+              - Launch importJob with filePath=/tmp/does-not-exist.csv
+              - Assert JobParametersInvalidException is thrown before any DB write
+          artifact: "src/test/java/org/example/etl/batch/ImportJobIntegrationTest.java (updated)"
+          depends_on: [task-5.1]
+          validation: "Both test methods pass green; temperature_reading remains empty after each failed launch."
+
+      checkpoint:
+        description: "Full integration test suite passes against Testcontainers MySQL."
+        criteria:
+          - "All 9 test methods pass (mvn test produces BUILD SUCCESS)."
+          - "No test hits an in-memory database — all use the Testcontainers MySQL container."
+          - "Summary stdout assertion confirms 'Inserted: N, Duplicates skipped: M, Invalid skipped: E' format."
+          - "Duplicate counter and invalid counter are independently verified in separate test methods."
+          - "Re-run test confirms two distinct Spring Batch job instance IDs."
